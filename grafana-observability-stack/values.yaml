@@ -1,0 +1,207 @@
+#
+# This is the umbrella values.yaml for the Grafana Observability Stack.
+#
+
+# --- Grafana Configuration ---
+# The visualization frontend for the stack.
+grafana:
+  # -- Set the admin password for Grafana.
+  # For production, it's recommended to use a secret.
+  # See: https://github.com/grafana/helm-charts/tree/main/charts/grafana#admin-user-and-password
+  adminPassword: "admin"
+
+  # -- Service configuration
+  service:
+    type: NodePort
+
+  # -- Ingress configuration (commented out by default)
+  # To enable, set enabled to true and configure your hostname.
+  ingress:
+    enabled: false
+    # ingressClassName: nginx
+    # hosts:
+    #   - grafana.example.com
+    # tls:
+    #   - secretName: grafana-tls
+    #     hosts:
+    #       - grafana.example.com
+
+  # -- Persistence configuration (disabled by default for POC)
+  # To enable, set enabled to true and specify a storageClassName.
+  persistence:
+    enabled: false
+    # storageClassName: "<YOUR_STORAGE_CLASS>"
+    size: 10Gi
+
+  # -- Automatic provisioning of datasources
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          url: http://{{ .Release.Name }}-prometheus-kube-prometheus-stack-prometheus.{{ .Release.Namespace }}.svc:9090
+          access: proxy
+          isDefault: true
+        - name: Loki
+          type: loki
+          url: http://{{ .Release.Name }}-loki.{{ .Release.Namespace }}.svc:3100
+          access: proxy
+        - name: Tempo
+          type: tempo
+          url: http://{{ .Release.Name }}-tempo-query-frontend.{{ .Release.Namespace }}.svc:3200
+          access: proxy
+        - name: Pyroscope
+          type: pyroscope
+          url: http://{{ .Release.Name }}-pyroscope.{{ .Release.Namespace }}.svc:4040
+          access: proxy
+
+# --- Prometheus Configuration ---
+# Deploys the kube-prometheus-stack, which includes Prometheus Operator,
+# Prometheus, Alertmanager, node-exporter, and kube-state-metrics.
+prometheus:
+  # -- We are deploying a separate Grafana instance, so we disable the one
+  # bundled with the kube-prometheus-stack.
+  grafana:
+    enabled: false
+
+  # -- For the POC, we disable persistence for Alertmanager.
+  # For production, you should enable this and provide a storageClassName.
+  alertmanager:
+    alertmanagerSpec:
+      storage:
+        volumeClaimTemplate:
+          spec:
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: 1Gi
+          # storageClassName: "<YOUR_STORAGE_CLASS>"
+    enabled: false # Disabling alertmanager for the POC to keep it minimal
+
+  # -- For the POC, we disable persistence for Prometheus.
+  # For production, you should enable this and provide a storageClassName.
+  prometheus:
+    prometheusSpec:
+      # -- Disable persistence for POC by using an emptyDir volume.
+      # To enable persistence, comment out the line below and configure the volumeClaimTemplate.
+      storageSpec: {}
+      # volumeClaimTemplate:
+      #   spec:
+      #     accessModes: ["ReadWriteOnce"]
+      #     resources:
+      #       requests:
+      #         storage: 10Gi
+      #   # storageClassName: "<YOUR_STORAGE_CLASS>"
+
+# --- Loki Configuration ---
+# Deploys Loki for log aggregation.
+loki:
+  # -- We deploy Loki in SingleBinary mode for the POC.
+  # For production, you might want to use SimpleScalable or Distributed mode.
+  deploymentMode: SingleBinary
+
+  # -- For the POC, we disable persistence for Loki.
+  # For production, you should enable this and provide a storageClassName.
+  singleBinary:
+    persistence:
+      enabled: false
+      # storageClassName: "<YOUR_STORAGE_CLASS>"
+      size: 10Gi
+
+# --- Tempo Configuration ---
+# Deploys Tempo for trace aggregation.
+# We use the tempo-distributed chart, but scale the components to 1 replica
+# for a minimal POC setup. For a simpler monolithic deployment, you could
+# investigate using the `tempo` chart if it becomes available.
+tempo:
+  ingester:
+    replicas: 1
+    persistence:
+      enabled: false
+      # storageClassName: "<YOUR_STORAGE_CLASS>"
+      size: 10Gi
+  distributor:
+    replicas: 1
+  compactor:
+    replicas: 1
+  querier:
+    replicas: 1
+  queryFrontend:
+    replicas: 1
+
+# --- Pyroscope Configuration ---
+# Deploys Pyroscope for continuous profiling.
+pyroscope:
+  # -- For the POC, we disable the bundled Minio dependency to make it stateless.
+  # For production, you should enable this or configure external object storage.
+  minio:
+    enabled: false
+
+# --- Grafana Alloy Configuration ---
+# Deploys Grafana Alloy to collect and forward telemetry data.
+alloy:
+  # -- The Alloy configuration is provided as a string to a configmap.
+  # For production, you may want to refine the scrape targets to be more specific.
+  configMap:
+    create: true
+    content: |
+      prometheus.scrape "default" {
+        targets    = prometheus.discover.kubernetes.pods.targets
+        forward_to = [prometheus.remote_write.default.receiver]
+      }
+
+      prometheus.discover.kubernetes "pods" {
+        role = "pod"
+      }
+
+      prometheus.remote_write "default" {
+        endpoint {
+          url = "http://{{ .Release.Name }}-prometheus-kube-prometheus-stack-prometheus.{{ .Release.Namespace }}.svc:9090/api/v1/write"
+        }
+      }
+
+      loki.source.kubernetes "pods" {
+        forward_to = [loki.write.default.receiver]
+      }
+
+      loki.write "default" {
+        endpoint {
+          url = "http://{{ .Release.Name }}-loki.{{ .Release.Namespace }}.svc:3100/loki/api/v1/push"
+        }
+      }
+
+      otelcol.receiver.otlp "default" {
+        grpc {}
+        http {}
+      }
+
+      otelcol.exporter.otlp "tempo" {
+        client {
+          endpoint = "{{ .Release.Name }}-tempo-distributor.{{ .Release.Namespace }}.svc:4317"
+          tls {
+            insecure = true
+          }
+        }
+      }
+
+      pyroscope.scrape "default" {
+        targets    = prometheus.discover.kubernetes.pods.targets
+        forward_to = [pyroscope.write.default.receiver]
+      }
+
+      pyroscope.write "default" {
+        endpoint {
+          url = "http://{{ .Release.Name }}-pyroscope.{{ .Release.Namespace }}.svc:4040/"
+        }
+      }
+
+      otelcol.processor.batch "default" {}
+
+      otelcol.service "default" {
+        pipeline "traces" {
+          receivers = [otelcol.receiver.otlp.default]
+          processors = [otelcol.processor.batch.default]
+          exporters = [otelcol.exporter.otlp.tempo]
+        }
+      }
