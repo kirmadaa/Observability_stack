@@ -98,21 +98,15 @@ prometheus:
 # Deploys Loki for log aggregation.
 loki:
   deploymentMode: SingleBinary
-  loki:
-    storage:
-      type: 'filesystem'
-      bucketNames:
-        chunks: 'chunks'
-        ruler: 'ruler'
-        admin: 'admin'
-    auth_enabled: false
+  auth_enabled: false
+  useTestSchema: true
+  storage:
+    type: 'filesystem'
   singleBinary:
     replicas: 1
     persistence:
       enabled: false
-      # storageClassName: "<YOUR_STORAGE_CLASS>"
       size: 10Gi
-  # Set replicas for other modes to 0 to avoid validation errors
   write:
     replicas: 0
   read:
