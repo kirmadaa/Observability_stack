@@ -108,6 +108,12 @@ loki:
       enabled: false
       # storageClassName: "<YOUR_STORAGE_CLASS>"
       size: 10Gi
+  storage:
+    type: 'filesystem'
+    bucketNames:
+      chunks: 'chunks'
+      ruler: 'ruler'
+      admin: 'admin'
 
 # --- Tempo Configuration ---
 # Deploys Tempo for trace aggregation.

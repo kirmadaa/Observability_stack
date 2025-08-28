@@ -28,7 +28,15 @@ This umbrella chart includes the following components:
     helm repo update
     ```
 
-2.  **Install the chart:**
+2.  **Build the Chart Dependencies:**
+
+    Before installing, you need to fetch the chart's dependencies.
+
+    ```bash
+    helm dependency build ./grafana-observability-stack
+    ```
+
+3.  **Install the chart:**
 
     You can deploy the chart with the following command. Replace `<release-name>` with a name for your deployment (e.g., `my-obs-stack`).
 
