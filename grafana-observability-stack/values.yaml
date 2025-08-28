@@ -112,6 +112,13 @@ loki:
       enabled: false
       # storageClassName: "<YOUR_STORAGE_CLASS>"
       size: 10Gi
+  # Set replicas for other modes to 0 to avoid validation errors
+  write:
+    replicas: 0
+  read:
+    replicas: 0
+  backend:
+    replicas: 0
 
 # --- Tempo Configuration ---
 # Deploys Tempo for trace aggregation.
